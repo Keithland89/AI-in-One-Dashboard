@@ -398,6 +398,8 @@ def compute_environment(has_license_raw: str, agent_name: str, agent_id: str, ap
         return "Autonomous Agent"
     if "cowork" in host:
         return "Cowork"
+    if "scout" in host:
+        return "Scout"
     if has_agent:
         return "Agents"
     if license_val in _LICENSE_TRUTHY:
@@ -553,6 +555,10 @@ def _context_behavior(app_host: str, ctx_type: str, is_active: bool) -> str:
         return "Real-time Collaboration"
     if app_host == "copilot studio":
         return "Domain-Specific Agent"
+    if "cowork" in app_host:
+        return "Cowork Task Orchestration"
+    if "scout" in app_host:
+        return "Proactive Assistance"
     if app_host in {"autonomous", "logic app"}:
         return "Workflow Execution"
     if app_host in {"datawarehousing core", "power bi"}:
@@ -597,12 +603,18 @@ _AGENT_NAME_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("data", "report", "dashboard", "metric"), "Agent: Data & Reporting"),
     (("knowledge", "faq", "wiki", "buddy", "guide"), "Agent: Knowledge Base"),
     (("idea", "brainstorm", "creative", "design"), "Agent: Ideation & Creative"),
+    (("scout", "proactive"), "Agent: Proactive Assistant"),
+    (("cowork", "workspace", "orchestrat"), "Agent: Cowork Orchestration"),
+    (("security", "threat", "soc", "phish"), "Agent: Security Operations"),
+    (("finance", "invoice", "expense", "procure", "purchas", "vendor", "spend"), "Agent: Finance & Procurement"),
+    (("supply", "logistics", "inventory", "manufactur", "field", "operations"), "Agent: Operations & Supply Chain"),
+    (("facilit", "workplace", "travel", "expenses", "concierge"), "Agent: Workplace Services"),
 )
 
 
 @functools.lru_cache(maxsize=None)
 def compute_behavior_enriched(behavior_category: str, agent_name: str, environment: str) -> str:
-    if environment not in {"Agents", "Autonomous Agent"}:
+    if environment not in {"Agents", "Autonomous Agent", "Cowork", "Scout"}:
         return behavior_category
     if behavior_category not in _GENERIC_QA_BEHAVIORS:
         return behavior_category
@@ -619,7 +631,11 @@ def compute_autonomy_pattern(environment: str) -> str:
         return "1 - Copilot"
     if environment == "Agents":
         return "2 - Agent-Assisted"
+    if environment == "Cowork":
+        return "2 - Agent-Assisted"
     if environment == "Autonomous Agent":
+        return "3 - Autonomous"
+    if environment == "Scout":
         return "3 - Autonomous"
     return ""
 
@@ -638,6 +654,10 @@ def compute_behavior_source(
     app = (app_host or "").strip()
     if environment == "Autonomous Agent":
         source = "Autonomous Agent" + (f": {agent}" if agent else "")
+    elif environment == "Scout":
+        source = f"Scout: {agent}" if agent else "Microsoft Scout"
+    elif environment == "Cowork":
+        source = f"Cowork: {agent}" if agent else "Copilot Cowork"
     elif environment == "Agents" and agent:
         source = f"Agent: {agent}"
     elif plugin:
@@ -669,6 +689,11 @@ _VO_DATA = frozenset({"Data Querying", "Agent: Data & Reporting", "Agent: Resear
 _VO_CODE = frozenset({"Code Writing", "Code Analysis", "Code Analysis (URL)"})
 _VO_COACH = frozenset({"Agent: Coaching", "Agent: Coaching (URL)"})
 _VO_DOMAIN = frozenset({"Domain-Specific Agent", "Cross-Org Agent"})
+_VO_PROACTIVE = frozenset({"Proactive Assistance", "Agent: Proactive Assistant"})
+_VO_ORCHESTRATION = frozenset({
+    "Cowork Task Orchestration", "Agent: Cowork Orchestration",
+    "Agent: Finance & Procurement", "Agent: Operations & Supply Chain",
+})
 
 
 @functools.lru_cache(maxsize=None)
@@ -676,6 +701,10 @@ def compute_value_outcome(
     behavior_enriched: str, environment: str, is_sensitive_str: str
 ) -> str:
     b = behavior_enriched or ""
+    if b in _VO_PROACTIVE:
+        return "Proactive Time Saved"
+    if b in _VO_ORCHESTRATION:
+        return "Workflow Automation"
     if b in _VO_TIME_EMAIL:
         return "Time Saved (Email)"
     if b in _VO_TIME_MEET:
@@ -710,9 +739,9 @@ def compute_value_outcome(
         return "Skills Development"
     if b == "Agent: Sales & Customer":
         return "Revenue Enablement"
-    if b == "Agent: IT & Service Desk":
+    if b == "Agent: IT & Service Desk" or b == "Agent: Workplace Services":
         return "Service Desk Deflection"
-    if b == "Agent: Compliance & Policy":
+    if b == "Agent: Compliance & Policy" or b == "Agent: Security Operations":
         return "Compliance & Risk"
     if b == "Agent: HR & People":
         return "HR Expertise"

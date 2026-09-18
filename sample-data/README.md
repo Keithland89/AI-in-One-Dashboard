@@ -16,9 +16,9 @@ explore every page **without a tenant, without Purview access, and without PAX**
 
 | File | PBIT parameter it feeds | Contents |
 |---|---|---|
-| `Purview_Audit_Synthetic_<timestamp>_Interactions.csv` | **Copilot Interactions File** | ~18k rolled-up Copilot / Agent interaction rows over a 90-day window |
+| `Purview_Audit_Synthetic_<timestamp>_Interactions.csv` | **Copilot Interactions File** | ~17k rolled-up Copilot / Agent / Cowork / Scout interaction rows over a 90-day window |
 | `EntraUsers_MAClicensing_Synthetic_<timestamp>_Users.csv` | **Org Data File** | 150 users with organization, job title, location and licence flags |
-| `Agent365_Synthetic_<timestamp>.csv` | **Agent 365 (highly recommended)** | 18-agent registry snapshot that joins to the interactions on `Title ID` |
+| `Agent365_Synthetic_<timestamp>.csv` | **Agent 365 (highly recommended)** | 44-agent registry snapshot that joins to the interactions on `Title ID` |
 
 All three are produced by [`../scripts/Generate_Synthetic_Rollup_Data.ps1`](../scripts/Generate_Synthetic_Rollup_Data.ps1).
 
@@ -57,6 +57,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Generate_Synthetic
 | `-EndDate` | today | Last day of the window |
 | `-Seed` | `20260918` | Change for a different — but still reproducible — dataset |
 | `-LicensedShare` | `0.55` | Baseline share of users with an M365 Copilot licence (varied per department) |
+| `-AgentShare` | `0.42` | Baseline share of sessions routed through a Copilot Studio agent |
+| `-CoworkShare` | `0.12` | Baseline share of sessions routed through Copilot Cowork (enrolled users only) |
+| `-ScoutShare` | `0.30` | Baseline share of sessions produced by Microsoft Scout (enrolled users only) |
 | `-Domain` | `contoso.com` | UPN / email domain |
 | `-Quiet` | off | Suppress the summary output |
 
@@ -84,11 +87,19 @@ The Agent 365 file matches the column set the template expects and is written
 **without quoting or embedded commas**, because the template reads it with
 `QuoteStyle.None`.
 
+Copilot Cowork and Microsoft Scout classification (the `Cowork` / `Scout` environments,
+their autonomy patterns, `Cowork Task Orchestration` / `Proactive Assistance` behaviours
+and the `Proactive Time Saved` value outcome) is additive and lives in the processor as
+well, so real tenant exports and this synthetic data classify identically.
+
 ### Shape of the synthetic tenant
 
 - **Engagement archetypes** — power / regular / occasional / trialist / dormant users, so active-user and frequency visuals show a realistic long tail
 - **Adoption ramp** — usage grows across the window, with weekday peaks and weekend troughs
 - **Uneven licence rollout** — Sales, Executive and Engineering skew licensed; Operations and Legal skew unlicensed
-- **Surface mix** — Outlook, Word, Excel, PowerPoint, Teams, BizChat, SharePoint, Stream, Designer, OneNote, Loop, Planner, Forms, Power BI, Copilot Studio, Cowork
-- **Agents** — 15 declarative agents plus 3 autonomous agents, whose names intentionally exercise every agent-classification rule (coaching, research, sales, HR, compliance, service desk, content, data, knowledge base, ideation)
-- **Multi-prompt threads**, a minority of sensitivity-labelled interactions, and a handful of registered-but-unused agents so the agent review visuals have something to flag
+- **Surface mix** — Outlook, Word, Excel, PowerPoint, Teams, BizChat, SharePoint, Stream, Designer, OneNote, Loop, Planner, Forms, Power BI, Copilot Studio, Copilot Cowork, Microsoft Scout, autonomous triggers and Logic Apps
+- **Agents** — a 44-entry Agent 365 registry spanning declarative agents (Agent Builder / Copilot Studio Lite), Copilot Studio **custom engine agents** with connectors and custom actions, autonomous agents, Cowork skills and Microsoft Scout. Names intentionally exercise every agent-classification rule (coaching, research, sales, HR, compliance, service desk, content, data, knowledge base, ideation, security, finance & procurement, supply chain, workplace services)
+- **Copilot Studio depth** — agent traffic covers the Copilot Studio authoring surface itself plus published consumption in Teams, M365 Copilot Chat, Outlook, Word, Excel, PowerPoint and SharePoint, with connector calls, Dataverse queries, Power Automate flow invocations, Graph connector reads and ServiceNow / Dynamics grounding
+- **Cowork** — task-driven sessions that plan then execute across apps (`Environment = Cowork`, `Autonomy_Pattern = 2 - Agent-Assisted`), with longer multi-step threads and a `Cowork Task Orchestration` behaviour
+- **Scout** — always-on proactive activity (`Environment = Scout`, `Autonomy_Pattern = 3 - Autonomous`) that ramps in during the second half of the window, mostly meeting prep, email triage, task and search work, plus a `Proactive Assistance` behaviour and a `Proactive Time Saved` value outcome
+- **Multi-prompt threads**, a minority of sensitivity-labelled interactions, and four registered-but-unused agents so the agent review visuals have something to flag

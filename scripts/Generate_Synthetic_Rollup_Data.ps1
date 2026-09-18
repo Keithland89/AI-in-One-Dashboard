@@ -17,6 +17,11 @@
     NO REAL TENANT DATA IS USED OR REQUIRED. Every user, agent, document and
     interaction is invented for the fictional "Contoso Ltd" tenant.
 
+    The interaction mix is deliberately inclusive of the whole Copilot estate:
+    licensed and unlicensed chat, in-app Copilot, Copilot Studio agents
+    (declarative, custom engine and autonomous), Copilot Cowork and Microsoft
+    Scout. Use -AgentShare / -CoworkShare / -ScoutShare to re-balance them.
+
 .EXAMPLE
     .\Generate_Synthetic_Rollup_Data.ps1 -OutDir "C:\Data\Synthetic"
 
@@ -31,6 +36,9 @@ param(
     [datetime] $EndDate = [datetime]::Today,
     [int]    $Seed = 20260918,
     [double] $LicensedShare = 0.55,
+    [double] $AgentShare = 0.42,
+    [double] $CoworkShare = 0.12,
+    [double] $ScoutShare = 0.30,
     [string] $Domain = 'contoso.com',
     [string] $Prefix = 'Purview_Audit_Synthetic',
     [string] $UsersPrefix = 'EntraUsers_MAClicensing_Synthetic',
@@ -83,6 +91,7 @@ function Get-Environment([string]$hasLicenseRaw, [string]$agentName, [string]$ag
     $hasAgent = ($agentName.Trim() -ne '') -or ($agentId.Trim() -ne '')
     if ($h -eq 'autonomous' -or $h -eq 'logic app') { return 'Autonomous Agent' }
     if ($h -like '*cowork*') { return 'Cowork' }
+    if ($h -like '*scout*') { return 'Scout' }
     if ($hasAgent) { return 'Agents' }
     if ($LicenseTruthy -contains $hasLicenseRaw.Trim().ToUpperInvariant()) { return 'Licensed M365 Copilot' }
     return 'Unlicensed Chat'
@@ -176,6 +185,8 @@ function Get-ContextBehavior([string]$appHost, [string]$ctxType, [bool]$isActive
     if ($appHost -eq 'planner') { return 'Task Management' }
     if (@('loop', 'whiteboard', 'vivaengage') -contains $appHost) { return 'Real-time Collaboration' }
     if ($appHost -eq 'copilot studio') { return 'Domain-Specific Agent' }
+    if ($appHost -like '*cowork*') { return 'Cowork Task Orchestration' }
+    if ($appHost -like '*scout*') { return 'Proactive Assistance' }
     if (@('autonomous', 'logic app') -contains $appHost) { return 'Workflow Execution' }
     if (@('datawarehousing core', 'power bi') -contains $appHost) { return 'Data Querying' }
     return 'General Chat'
@@ -209,11 +220,17 @@ $AgentNameRules = @(
     @{ Tokens = @('summar', 'draft', 'translat', 'editor'); Label = 'Agent: Content Generation' },
     @{ Tokens = @('data', 'report', 'dashboard', 'metric'); Label = 'Agent: Data & Reporting' },
     @{ Tokens = @('knowledge', 'faq', 'wiki', 'buddy', 'guide'); Label = 'Agent: Knowledge Base' },
-    @{ Tokens = @('idea', 'brainstorm', 'creative', 'design'); Label = 'Agent: Ideation & Creative' }
+    @{ Tokens = @('idea', 'brainstorm', 'creative', 'design'); Label = 'Agent: Ideation & Creative' },
+    @{ Tokens = @('scout', 'proactive'); Label = 'Agent: Proactive Assistant' },
+    @{ Tokens = @('cowork', 'workspace', 'orchestrat'); Label = 'Agent: Cowork Orchestration' },
+    @{ Tokens = @('security', 'threat', 'soc', 'phish'); Label = 'Agent: Security Operations' },
+    @{ Tokens = @('finance', 'invoice', 'expense', 'procure', 'purchas', 'vendor', 'spend'); Label = 'Agent: Finance & Procurement' },
+    @{ Tokens = @('supply', 'logistics', 'inventory', 'manufactur', 'field', 'operations'); Label = 'Agent: Operations & Supply Chain' },
+    @{ Tokens = @('facilit', 'workplace', 'travel', 'expenses', 'concierge'); Label = 'Agent: Workplace Services' }
 )
 
 function Get-BehaviorEnriched([string]$behaviorCategory, [string]$agentName, [string]$environment) {
-    if ($environment -ne 'Agents' -and $environment -ne 'Autonomous Agent') { return $behaviorCategory }
+    if (@('Agents', 'Autonomous Agent', 'Cowork', 'Scout') -notcontains $environment) { return $behaviorCategory }
     if ($GenericQaBehaviors -notcontains $behaviorCategory) { return $behaviorCategory }
     $nameL = $agentName.ToLowerInvariant()
     foreach ($rule in $AgentNameRules) {
@@ -226,7 +243,9 @@ function Get-AutonomyPattern([string]$environment) {
     switch ($environment) {
         'Licensed M365 Copilot' { '1 - Copilot' }
         'Agents' { '2 - Agent-Assisted' }
+        'Cowork' { '2 - Agent-Assisted' }
         'Autonomous Agent' { '3 - Autonomous' }
+        'Scout' { '3 - Autonomous' }
         default { '' }
     }
 }
@@ -238,6 +257,14 @@ function Get-BehaviorSource([string]$behaviorCategory, [string]$environment, [st
     if ($environment -eq 'Autonomous Agent') {
         $source = 'Autonomous Agent'
         if ($agent) { $source = "Autonomous Agent: $agent" }
+    }
+    elseif ($environment -eq 'Scout') {
+        $source = 'Microsoft Scout'
+        if ($agent) { $source = "Scout: $agent" }
+    }
+    elseif ($environment -eq 'Cowork') {
+        $source = 'Copilot Cowork'
+        if ($agent) { $source = "Cowork: $agent" }
     }
     elseif ($environment -eq 'Agents' -and $agent) { $source = "Agent: $agent" }
     elseif ($plugin) { $source = "$app ($plugin)" }
@@ -258,9 +285,13 @@ $VoData = @('Data Querying', 'Agent: Data & Reporting', 'Agent: Research & Analy
 $VoCode = @('Code Writing', 'Code Analysis', 'Code Analysis (URL)')
 $VoCoach = @('Agent: Coaching', 'Agent: Coaching (URL)')
 $VoDomain = @('Domain-Specific Agent', 'Cross-Org Agent')
+$VoProactive = @('Proactive Assistance', 'Agent: Proactive Assistant')
+$VoOrchestration = @('Cowork Task Orchestration', 'Agent: Cowork Orchestration', 'Agent: Finance & Procurement', 'Agent: Operations & Supply Chain')
 
 function Get-ValueOutcome([string]$behaviorEnriched, [string]$environment, [string]$isSensitive) {
     $b = $behaviorEnriched
+    if ($VoProactive -contains $b) { return 'Proactive Time Saved' }
+    if ($VoOrchestration -contains $b) { return 'Workflow Automation' }
     if ($VoTimeEmail -contains $b) { return 'Time Saved (Email)' }
     if ($VoTimeMeet -contains $b) { return 'Time Saved (Meetings)' }
     if ($VoTimeDoc -contains $b) { return 'Time Saved (Documents)' }
@@ -276,8 +307,8 @@ function Get-ValueOutcome([string]$behaviorEnriched, [string]$environment, [stri
     if ($VoCode -contains $b) { return 'Coding Capability' }
     if ($VoCoach -contains $b) { return 'Skills Development' }
     if ($b -eq 'Agent: Sales & Customer') { return 'Revenue Enablement' }
-    if ($b -eq 'Agent: IT & Service Desk') { return 'Service Desk Deflection' }
-    if ($b -eq 'Agent: Compliance & Policy') { return 'Compliance & Risk' }
+    if ($b -eq 'Agent: IT & Service Desk' -or $b -eq 'Agent: Workplace Services') { return 'Service Desk Deflection' }
+    if ($b -eq 'Agent: Compliance & Policy' -or $b -eq 'Agent: Security Operations') { return 'Compliance & Risk' }
     if ($b -eq 'Agent: HR & People') { return 'HR Expertise' }
     if ($VoDomain -contains $b) { return 'Specialist Expertise' }
     return 'General AI Productivity'
@@ -378,6 +409,10 @@ for ($i = 1; $i -le $UserCount; $i++) {
             # Individual onboarding offset (days from window start) for the ramp.
             OnboardDay  = [int]([Math]::Floor((Get-Rand) * $Days * 0.55))
             AgentAffinity = (Get-Rand)
+            # Cowork and Scout are newer surfaces, so only part of the population is
+            # enrolled and they only appear later in the window (see the ramp below).
+            CoworkEnabled = ($licensed -and (Get-Rand) -lt 0.60)
+            ScoutEnabled = ($licensed -and (Get-Rand) -lt 0.45)
         })
 }
 
@@ -406,24 +441,59 @@ function New-Guid36 {
 }
 
 $AgentDefs = @(
-    @{ Name = 'HR Onboarding Buddy'; Type = 'Declarative agent'; Creator = 'People Technology Team'; Org = 'Human Resources'; W = 9; Desc = 'Answers new-starter questions about benefits; payroll and first-week setup.' },
-    @{ Name = 'Sales Deal Coach'; Type = 'Declarative agent'; Creator = 'Revenue Operations'; Org = 'Sales'; W = 13; Desc = 'Summarises opportunity history and suggests next best actions for sellers.' },
-    @{ Name = 'IT Service Desk Assistant'; Type = 'Declarative agent'; Creator = 'IT Operations'; Org = 'IT Operations'; W = 14; Desc = 'Deflects common IT tickets and walks users through self-service fixes.' },
-    @{ Name = 'Policy & Compliance Advisor'; Type = 'Declarative agent'; Creator = 'Legal Technology'; Org = 'Legal & Compliance'; W = 6; Desc = 'Explains internal policy wording and flags approval routes.' },
-    @{ Name = 'Market Research Analyst'; Type = 'Declarative agent'; Creator = 'Strategy Office'; Org = 'Marketing'; W = 8; Desc = 'Pulls competitor and market context into briefing notes.' },
-    @{ Name = 'Finance Reporting Agent'; Type = 'Declarative agent'; Creator = 'Finance Systems'; Org = 'Finance'; W = 7; Desc = 'Explains variance drivers from the monthly reporting pack.' },
-    @{ Name = 'Customer Support Triage'; Type = 'Declarative agent'; Creator = 'Customer Success Ops'; Org = 'Customer Success'; W = 10; Desc = 'Classifies inbound support cases and drafts first responses.' },
-    @{ Name = 'Engineering Knowledge Base'; Type = 'Declarative agent'; Creator = 'Developer Experience'; Org = 'Engineering'; W = 9; Desc = 'Surfaces internal engineering runbooks and architecture decisions.' },
-    @{ Name = 'Career Learning Mentor'; Type = 'Declarative agent'; Creator = 'Learning & Development'; Org = 'Human Resources'; W = 5; Desc = 'Recommends learning paths aligned to role and skills gaps.' },
-    @{ Name = 'Contract Draft Editor'; Type = 'Declarative agent'; Creator = 'Legal Technology'; Org = 'Legal & Compliance'; W = 4; Desc = 'Drafts and redlines standard clauses from the approved template library.' },
-    @{ Name = 'Supply Chain Data Reporter'; Type = 'Declarative agent'; Creator = 'Operations Analytics'; Org = 'Operations'; W = 6; Desc = 'Answers questions over shipment and inventory dashboards.' },
-    @{ Name = 'Campaign Ideation Studio'; Type = 'Declarative agent'; Creator = 'Brand Studio'; Org = 'Marketing'; W = 5; Desc = 'Brainstorms campaign concepts and creative variants.' },
-    @{ Name = 'Procurement Helpdesk'; Type = 'Declarative agent'; Creator = 'Procurement Systems'; Org = 'Operations'; W = 4; Desc = 'Guides requesters through purchase request and vendor onboarding steps.' },
-    @{ Name = 'Security Incident Responder'; Type = 'Autonomous agent'; Creator = 'Security Engineering'; Org = 'IT Operations'; W = 5; Desc = 'Enriches security alerts and opens triage records without user prompting.' },
-    @{ Name = 'Invoice Processing Bot'; Type = 'Autonomous agent'; Creator = 'Finance Systems'; Org = 'Finance'; W = 5; Desc = 'Reads supplier invoices and posts matched records to the ledger.' },
-    @{ Name = 'Weekly Metrics Publisher'; Type = 'Autonomous agent'; Creator = 'Operations Analytics'; Org = 'Operations'; W = 4; Desc = 'Publishes the weekly operating metrics digest on a schedule.' },
-    @{ Name = 'Travel Policy Guide'; Type = 'Declarative agent'; Creator = 'People Technology Team'; Org = 'Human Resources'; W = 3; Desc = 'Answers travel and expense policy questions for requesters.' },
-    @{ Name = 'Product Feedback Analyst'; Type = 'Declarative agent'; Creator = 'Product Operations'; Org = 'Research & Development'; W = 4; Desc = 'Clusters product feedback themes from survey and ticket text.' }
+    # --- Copilot Studio declarative agents (Agent Builder / Copilot Studio Lite) -----------
+    @{ Name = 'HR Onboarding Buddy'; Type = 'Declarative agent'; Creator = 'People Technology Team'; Org = 'Human Resources'; W = 9; Desc = 'Answers new-starter questions about benefits; payroll and first-week setup.'; CreatedIn = 'Agent Builder'; SupportedIn = 'Microsoft Teams; Microsoft 365 Copilot Chat' },
+    @{ Name = 'Sales Deal Coach'; Type = 'Declarative agent'; Creator = 'Revenue Operations'; Org = 'Sales'; W = 13; Desc = 'Summarises opportunity history and suggests next best actions for sellers.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft 365 Copilot Chat; Microsoft Teams' },
+    @{ Name = 'IT Service Desk Assistant'; Type = 'Declarative agent'; Creator = 'IT Operations'; Org = 'IT Operations'; W = 14; Desc = 'Deflects common IT tickets and walks users through self-service fixes.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft Teams; Microsoft 365 Copilot Chat' },
+    @{ Name = 'Policy & Compliance Advisor'; Type = 'Declarative agent'; Creator = 'Legal Technology'; Org = 'Legal & Compliance'; W = 6; Desc = 'Explains internal policy wording and flags approval routes.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft 365 Copilot Chat' },
+    @{ Name = 'Market Research Analyst'; Type = 'Declarative agent'; Creator = 'Strategy Office'; Org = 'Marketing'; W = 8; Desc = 'Pulls competitor and market context into briefing notes.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft 365 Copilot Chat; Word' },
+    @{ Name = 'Finance Reporting Agent'; Type = 'Declarative agent'; Creator = 'Finance Systems'; Org = 'Finance'; W = 7; Desc = 'Explains variance drivers from the monthly reporting pack.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft 365 Copilot Chat; Excel' },
+    @{ Name = 'Customer Support Triage'; Type = 'Declarative agent'; Creator = 'Customer Success Ops'; Org = 'Customer Success'; W = 10; Desc = 'Classifies inbound support cases and drafts first responses.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft Teams; Microsoft 365 Copilot Chat' },
+    @{ Name = 'Engineering Knowledge Base'; Type = 'Declarative agent'; Creator = 'Developer Experience'; Org = 'Engineering'; W = 9; Desc = 'Surfaces internal engineering runbooks and architecture decisions.'; CreatedIn = 'Agent Builder'; SupportedIn = 'Microsoft Teams' },
+    @{ Name = 'Career Learning Mentor'; Type = 'Declarative agent'; Creator = 'Learning & Development'; Org = 'Human Resources'; W = 5; Desc = 'Recommends learning paths aligned to role and skills gaps.'; CreatedIn = 'Agent Builder'; SupportedIn = 'Microsoft 365 Copilot Chat' },
+    @{ Name = 'Contract Draft Editor'; Type = 'Declarative agent'; Creator = 'Legal Technology'; Org = 'Legal & Compliance'; W = 4; Desc = 'Drafts and redlines standard clauses from the approved template library.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Word; Microsoft 365 Copilot Chat' },
+    @{ Name = 'Supply Chain Data Reporter'; Type = 'Declarative agent'; Creator = 'Operations Analytics'; Org = 'Operations'; W = 6; Desc = 'Answers questions over shipment and inventory dashboards.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft 365 Copilot Chat; Microsoft Teams' },
+    @{ Name = 'Campaign Ideation Studio'; Type = 'Declarative agent'; Creator = 'Brand Studio'; Org = 'Marketing'; W = 5; Desc = 'Brainstorms campaign concepts and creative variants.'; CreatedIn = 'Agent Builder'; SupportedIn = 'Microsoft 365 Copilot Chat; PowerPoint' },
+    @{ Name = 'Procurement Helpdesk'; Type = 'Declarative agent'; Creator = 'Procurement Systems'; Org = 'Operations'; W = 4; Desc = 'Guides requesters through purchase request and vendor onboarding steps.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft Teams' },
+    @{ Name = 'Travel Policy Guide'; Type = 'Declarative agent'; Creator = 'People Technology Team'; Org = 'Human Resources'; W = 3; Desc = 'Answers travel and expense policy questions for requesters.'; CreatedIn = 'Agent Builder'; SupportedIn = 'Microsoft 365 Copilot Chat' },
+    @{ Name = 'Product Feedback Analyst'; Type = 'Declarative agent'; Creator = 'Product Operations'; Org = 'Research & Development'; W = 4; Desc = 'Clusters product feedback themes from survey and ticket text.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft 365 Copilot Chat' },
+    @{ Name = 'Benefits & Payroll FAQ'; Type = 'Declarative agent'; Creator = 'People Technology Team'; Org = 'Human Resources'; W = 6; Desc = 'Answers payroll cut-off and benefits enrolment questions from the HR wiki.'; CreatedIn = 'Copilot Studio Lite'; SupportedIn = 'Microsoft Teams' },
+    @{ Name = 'Deal Desk Pricing Guide'; Type = 'Declarative agent'; Creator = 'Revenue Operations'; Org = 'Sales'; W = 7; Desc = 'Explains discount bands and approval thresholds for proposed deals.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft 365 Copilot Chat; Microsoft Teams' },
+    @{ Name = 'Workplace Concierge'; Type = 'Declarative agent'; Creator = 'Workplace Services'; Org = 'Operations'; W = 5; Desc = 'Handles desk booking; facilities requests and site access questions.'; CreatedIn = 'Copilot Studio Lite'; SupportedIn = 'Microsoft Teams' },
+    @{ Name = 'Meeting Notes Summariser'; Type = 'Declarative agent'; Creator = 'Digital Workplace'; Org = 'IT Operations'; W = 6; Desc = 'Summarises recorded meetings into decisions and owner-tagged actions.'; CreatedIn = 'Agent Builder'; SupportedIn = 'Microsoft Teams; Microsoft 365 Copilot Chat' },
+    @{ Name = 'Tender Response Writer'; Type = 'Declarative agent'; Creator = 'Bid Management'; Org = 'Sales'; W = 4; Desc = 'Drafts tender answers from the approved bid answer library.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Word; Microsoft 365 Copilot Chat' },
+    @{ Name = 'Data Governance Guide'; Type = 'Declarative agent'; Creator = 'Data Office'; Org = 'IT Operations'; W = 0; Desc = 'Explains data classification rules and approved sharing patterns.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft 365 Copilot Chat' },
+    @{ Name = 'Manager Coaching Companion'; Type = 'Declarative agent'; Creator = 'Learning & Development'; Org = 'Human Resources'; W = 0; Desc = 'Coaches line managers through feedback and performance conversations.'; CreatedIn = 'Agent Builder'; SupportedIn = 'Microsoft 365 Copilot Chat' },
+
+    # --- Copilot Studio custom engine agents (connectors / custom actions / Dataverse) -----
+    @{ Name = 'ServiceNow Incident Navigator'; Type = 'Custom engine agent'; Creator = 'IT Operations'; Org = 'IT Operations'; W = 9; Desc = 'Reads and updates ServiceNow incidents through a certified connector.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft Teams; Microsoft 365 Copilot Chat' },
+    @{ Name = 'Dynamics Opportunity Analyst'; Type = 'Custom engine agent'; Creator = 'Revenue Operations'; Org = 'Sales'; W = 8; Desc = 'Queries Dynamics 365 pipeline records and explains stage movement.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft 365 Copilot Chat' },
+    @{ Name = 'SAP Invoice Lookup'; Type = 'Custom engine agent'; Creator = 'Finance Systems'; Org = 'Finance'; W = 6; Desc = 'Looks up supplier invoice status across the SAP ledger connector.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft Teams' },
+    @{ Name = 'Workday People Directory'; Type = 'Custom engine agent'; Creator = 'People Technology Team'; Org = 'Human Resources'; W = 5; Desc = 'Answers org-chart and absence questions from the Workday connector.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft Teams; Microsoft 365 Copilot Chat' },
+    @{ Name = 'Salesforce Account Brief'; Type = 'Custom engine agent'; Creator = 'Revenue Operations'; Org = 'Sales'; W = 5; Desc = 'Builds pre-call account briefs from Salesforce records and recent email.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft 365 Copilot Chat; Outlook' },
+    @{ Name = 'Dataverse Quality Reporter'; Type = 'Custom engine agent'; Creator = 'Operations Analytics'; Org = 'Operations'; W = 5; Desc = 'Runs saved Dataverse queries over quality and defect tables.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft 365 Copilot Chat' },
+    @{ Name = 'Field Service Dispatcher'; Type = 'Custom engine agent'; Creator = 'Operations Analytics'; Org = 'Operations'; W = 4; Desc = 'Checks engineer availability and books field service visits.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft Teams' },
+    @{ Name = 'Customer Health Scorer'; Type = 'Custom engine agent'; Creator = 'Customer Success Ops'; Org = 'Customer Success'; W = 6; Desc = 'Blends usage; ticket and renewal signals into an account health view.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft 365 Copilot Chat; Microsoft Teams' },
+    @{ Name = 'Release Notes Publisher'; Type = 'Custom engine agent'; Creator = 'Developer Experience'; Org = 'Engineering'; W = 0; Desc = 'Turns merged work items into customer-ready release notes.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft Teams' },
+    @{ Name = 'Regulatory Filing Checker'; Type = 'Custom engine agent'; Creator = 'Legal Technology'; Org = 'Legal & Compliance'; W = 0; Desc = 'Cross-checks filing drafts against the regulatory clause library.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Word' },
+    @{ Name = 'Security Phishing Triage'; Type = 'Custom engine agent'; Creator = 'Security Engineering'; Org = 'IT Operations'; W = 5; Desc = 'Assesses reported phishing mail and recommends a containment path.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Microsoft Teams; Outlook' },
+
+    # --- Autonomous agents (triggered; no user prompt) -------------------------------------
+    @{ Name = 'Security Incident Responder'; Type = 'Autonomous agent'; Creator = 'Security Engineering'; Org = 'IT Operations'; W = 5; Desc = 'Enriches security alerts and opens triage records without user prompting.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Autonomous trigger' },
+    @{ Name = 'Invoice Processing Bot'; Type = 'Autonomous agent'; Creator = 'Finance Systems'; Org = 'Finance'; W = 5; Desc = 'Reads supplier invoices and posts matched records to the ledger.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Autonomous trigger' },
+    @{ Name = 'Weekly Metrics Publisher'; Type = 'Autonomous agent'; Creator = 'Operations Analytics'; Org = 'Operations'; W = 4; Desc = 'Publishes the weekly operating metrics digest on a schedule.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Autonomous trigger' },
+    @{ Name = 'Renewal Risk Watcher'; Type = 'Autonomous agent'; Creator = 'Customer Success Ops'; Org = 'Customer Success'; W = 4; Desc = 'Monitors renewal signals and raises at-risk accounts to the owner.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Autonomous trigger' },
+    @{ Name = 'Supplier Onboarding Runner'; Type = 'Autonomous agent'; Creator = 'Procurement Systems'; Org = 'Operations'; W = 3; Desc = 'Completes vendor onboarding checks and files the approval record.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Autonomous trigger' },
+    @{ Name = 'Ticket Backlog Groomer'; Type = 'Autonomous agent'; Creator = 'IT Operations'; Org = 'IT Operations'; W = 4; Desc = 'Reclassifies and re-prioritises stale service desk tickets overnight.'; CreatedIn = 'Copilot Studio'; SupportedIn = 'Autonomous trigger' },
+
+    # --- Cowork skills (task-driven, multi-app execution with approval) --------------------
+    @{ Name = 'Cowork Project Planner'; Type = 'Cowork skill'; Creator = 'Digital Workplace'; Org = 'Operations'; W = 8; Desc = 'Plans a piece of work end to end and executes the steps across M365 apps.'; CreatedIn = 'Microsoft'; SupportedIn = 'Copilot Cowork' },
+    @{ Name = 'Cowork Deal Room Builder'; Type = 'Cowork skill'; Creator = 'Revenue Operations'; Org = 'Sales'; W = 6; Desc = 'Assembles a deal room of briefs; decks and follow-ups for an opportunity.'; CreatedIn = 'Microsoft'; SupportedIn = 'Copilot Cowork' },
+    @{ Name = 'Cowork Reporting Pack Assembler'; Type = 'Cowork skill'; Creator = 'Finance Systems'; Org = 'Finance'; W = 5; Desc = 'Collects month-end inputs and assembles the reporting pack for review.'; CreatedIn = 'Microsoft'; SupportedIn = 'Copilot Cowork' },
+    @{ Name = 'Cowork Onboarding Workspace'; Type = 'Cowork skill'; Creator = 'People Technology Team'; Org = 'Human Resources'; W = 4; Desc = 'Sets up the new-joiner workspace; plan and first-week meetings.'; CreatedIn = 'Microsoft'; SupportedIn = 'Copilot Cowork' },
+
+    # --- Microsoft Scout (always-on, proactive, own Entra identity) ------------------------
+    @{ Name = 'Microsoft Scout'; Type = 'Microsoft agent'; Creator = 'Microsoft'; Org = 'IT Operations'; W = 12; Desc = 'Always-on proactive agent that prepares work ahead of meetings and deadlines.'; CreatedIn = 'Microsoft'; SupportedIn = 'Microsoft Scout' }
 )
 
 $publisherGuid = New-Guid36
@@ -443,16 +513,26 @@ foreach ($a in $AgentDefs) {
             Creator    = $a.Creator
             CreatorId  = $(if ($creatorUser) { $creatorUser.Upn } else { "agent.factory@$Domain" })
             Desc       = $a.Desc
+            CreatedIn  = $a.CreatedIn
+            SupportedIn = $a.SupportedIn
             Autonomous = ($a.Type -eq 'Autonomous agent')
+            Cowork     = ($a.Type -eq 'Cowork skill')
+            Scout      = ($a.Type -eq 'Microsoft agent')
             Created    = $created
             W          = $a.W
             LastUsed   = $null
         })
 }
-$declarativeAgents = @($agents | Where-Object { -not $_.Autonomous })
+$declarativeAgents = @($agents | Where-Object { $_.Type -eq 'Declarative agent' -or $_.Type -eq 'Custom engine agent' })
 $autonomousAgents = @($agents | Where-Object { $_.Autonomous })
-$declarativePicker = New-WeightedPicker $declarativeAgents
-$autonomousPicker = New-WeightedPicker $autonomousAgents
+$coworkAgents = @($agents | Where-Object { $_.Cowork })
+$scoutAgents = @($agents | Where-Object { $_.Scout })
+# Agents with a zero weight are registered in the Agent 365 inventory but never
+# invoked, so the "registered but unused" agent review visuals have something to flag.
+$declarativePicker = New-WeightedPicker @($declarativeAgents | Where-Object { $_.W -gt 0 })
+$autonomousPicker = New-WeightedPicker @($autonomousAgents | Where-Object { $_.W -gt 0 })
+$coworkPicker = New-WeightedPicker @($coworkAgents | Where-Object { $_.W -gt 0 })
+$scoutPicker = New-WeightedPicker @($scoutAgents | Where-Object { $_.W -gt 0 })
 
 # ---------------------------------------------------------------------------
 # Interaction scenarios
@@ -497,7 +577,7 @@ $LicensedScenarios = @(
     New-Scenario @{ W = 3; AppHost = 'bizchat'; Ctx = ''; ResType = 'json'; ResAction = 'read' }
     New-Scenario @{ W = 2; AppHost = 'cowork'; Ctx = ''; ResType = ''; ResAction = '' }
 )
-$LicensedPicker = New-WeightedPicker $LicensedScenarios
+$LicensedScenarioPicker = New-WeightedPicker $LicensedScenarios
 
 $UnlicensedScenarios = @(
     New-Scenario @{ W = 30; AppHost = 'bizchat'; Ctx = ''; ResType = ''; ResAction = '' }
@@ -507,25 +587,82 @@ $UnlicensedScenarios = @(
     New-Scenario @{ W = 4; AppHost = 'word'; Ctx = 'docx'; ResType = ''; ResAction = '' }
     New-Scenario @{ W = 3; AppHost = 'excel'; Ctx = 'xlsx'; ResType = ''; ResAction = '' }
 )
-$UnlicensedPicker = New-WeightedPicker $UnlicensedScenarios
+$UnlicensedScenarioPicker = New-WeightedPicker $UnlicensedScenarios
 
 $AgentScenarios = @(
-    New-Scenario @{ W = 34; AppHost = 'bizchat'; Ctx = ''; ResType = ''; ResAction = '' }
-    New-Scenario @{ W = 22; AppHost = 'teams'; Ctx = ''; ResType = ''; ResAction = '' }
-    New-Scenario @{ W = 14; AppHost = 'copilot studio'; Ctx = ''; ResType = ''; ResAction = '' }
-    New-Scenario @{ W = 8; AppHost = 'bizchat'; Ctx = ''; ResType = 'listitem'; ResAction = 'read'; PluginId = 'EnterpriseSearch'; PluginName = 'Enterprise Search'; UseSite = $true }
+    # Copilot Studio is the primary build-and-run surface for custom agents.
+    New-Scenario @{ W = 20; AppHost = 'copilot studio'; Ctx = ''; ResType = ''; ResAction = '' }
+    New-Scenario @{ W = 9; AppHost = 'copilot studio'; Ctx = ''; ResType = 'connector'; ResAction = 'execute' }
+    New-Scenario @{ W = 8; AppHost = 'copilot studio'; Ctx = ''; ResType = ''; ResAction = 'executedatasetquery' }
+    New-Scenario @{ W = 7; AppHost = 'copilot studio'; Ctx = ''; ResType = 'flow'; ResAction = 'invoke' }
+    New-Scenario @{ W = 7; AppHost = 'copilot studio'; Ctx = ''; ResType = 'listitem'; ResAction = 'read'; PluginId = 'EnterpriseSearch'; PluginName = 'Enterprise Search'; UseSite = $true }
+    New-Scenario @{ W = 6; AppHost = 'copilot studio'; Ctx = ''; ResType = 'emailmessage'; ResAction = 'draftemail' }
+    New-Scenario @{ W = 5; AppHost = 'copilot studio'; Ctx = ''; ResType = 'teamsmessage'; ResAction = 'postmessagetoconversation' }
+    New-Scenario @{ W = 5; AppHost = 'copilot studio'; Ctx = ''; ResType = 'docx'; ResAction = 'create' }
+    New-Scenario @{ W = 4; AppHost = 'copilot studio'; Ctx = ''; ResType = 'xlsx'; ResAction = 'read' }
+    New-Scenario @{ W = 4; AppHost = 'copilot studio'; Ctx = ''; ResType = 'pdf'; ResAction = 'read' }
+    New-Scenario @{ W = 4; AppHost = 'copilot studio'; Ctx = ''; ResType = 'http'; ResAction = 'read'; PluginId = 'GraphConnector'; PluginName = 'Graph Connector' }
+    New-Scenario @{ W = 4; AppHost = 'copilot studio'; Ctx = ''; ResType = 'http://schema.skype.com/hyperlink'; ResAction = 'read'; Site = 'https://contoso.service-now.com/incident' }
+    New-Scenario @{ W = 3; AppHost = 'copilot studio'; Ctx = ''; ResType = 'http://schema.skype.com/hyperlink'; ResAction = 'read'; Site = 'https://contoso.crm.dynamics.com/opportunity' }
+    New-Scenario @{ W = 3; AppHost = 'copilot studio'; Ctx = ''; ResType = 'planid'; ResAction = 'getitems' }
+
+    # Published agents consumed from the M365 Copilot / Teams / app surfaces.
+    New-Scenario @{ W = 22; AppHost = 'bizchat'; Ctx = ''; ResType = ''; ResAction = '' }
+    New-Scenario @{ W = 16; AppHost = 'teams'; Ctx = ''; ResType = ''; ResAction = '' }
+    New-Scenario @{ W = 7; AppHost = 'bizchat'; Ctx = ''; ResType = 'listitem'; ResAction = 'read'; PluginId = 'EnterpriseSearch'; PluginName = 'Enterprise Search'; UseSite = $true }
     New-Scenario @{ W = 6; AppHost = 'bizchat'; Ctx = ''; ResType = 'http://schema.skype.com/hyperlink'; ResAction = 'read'; Site = 'https://contoso.service-now.com/incident' }
     New-Scenario @{ W = 5; AppHost = 'bizchat'; Ctx = ''; ResType = 'http://schema.skype.com/hyperlink'; ResAction = 'read'; Site = 'https://contoso.crm.dynamics.com/opportunity' }
     New-Scenario @{ W = 5; AppHost = 'teams'; Ctx = ''; ResType = 'http://schema.skype.com/hyperlink'; ResAction = 'read'; Site = 'https://learning.cloud.microsoft/paths' }
+    New-Scenario @{ W = 5; AppHost = 'teams'; Ctx = 'teamschat'; ResType = 'teamsmessage'; ResAction = 'postmessagetoconversation' }
+    New-Scenario @{ W = 4; AppHost = 'outlook'; Ctx = 'emailmessage'; ResType = 'emailmessage'; ResAction = 'draftemail' }
+    New-Scenario @{ W = 4; AppHost = 'word'; Ctx = 'docx'; ResType = 'docx'; ResAction = 'create' }
+    New-Scenario @{ W = 3; AppHost = 'excel'; Ctx = 'xlsx'; ResType = 'xlsx'; ResAction = 'read' }
+    New-Scenario @{ W = 3; AppHost = 'powerpoint'; Ctx = 'pptx'; ResType = 'pptx'; ResAction = 'create' }
+    New-Scenario @{ W = 3; AppHost = 'sharepoint'; Ctx = 'aspx'; ResType = 'aspx'; ResAction = 'read'; UseSite = $true }
+    New-Scenario @{ W = 3; AppHost = 'bizchat'; Ctx = ''; ResType = 'websearchquery'; ResAction = 'read'; PluginId = 'BingWebSearch'; PluginName = 'Bing Web Search' }
+    New-Scenario @{ W = 2; AppHost = 'bizchat'; Ctx = ''; ResType = 'peopleinferenceanswer'; ResAction = 'read'; PluginId = 'PeopleSearch'; PluginName = 'People Search' }
 )
-$AgentPicker = New-WeightedPicker $AgentScenarios
+$AgentScenarioPicker = New-WeightedPicker $AgentScenarios
+
+# Cowork: task-driven, plans then executes across apps with a human approval loop.
+$CoworkScenarios = @(
+    New-Scenario @{ W = 14; AppHost = 'cowork'; Ctx = ''; ResType = ''; ResAction = '' }
+    New-Scenario @{ W = 9; AppHost = 'cowork'; Ctx = ''; ResType = 'docx'; ResAction = 'create' }
+    New-Scenario @{ W = 7; AppHost = 'cowork'; Ctx = ''; ResType = 'pptx'; ResAction = 'create' }
+    New-Scenario @{ W = 7; AppHost = 'cowork'; Ctx = ''; ResType = 'xlsx'; ResAction = 'write' }
+    New-Scenario @{ W = 7; AppHost = 'cowork'; Ctx = ''; ResType = 'emailmessage'; ResAction = 'draftemail' }
+    New-Scenario @{ W = 6; AppHost = 'cowork'; Ctx = ''; ResType = 'teamsmessage'; ResAction = 'postmessagetoconversation' }
+    New-Scenario @{ W = 6; AppHost = 'cowork'; Ctx = ''; ResType = 'planid'; ResAction = 'getitems' }
+    New-Scenario @{ W = 5; AppHost = 'cowork'; Ctx = ''; ResType = 'flow'; ResAction = 'invoke' }
+    New-Scenario @{ W = 5; AppHost = 'cowork'; Ctx = ''; ResType = 'listitem'; ResAction = 'read'; PluginId = 'EnterpriseSearch'; PluginName = 'Enterprise Search'; UseSite = $true }
+    New-Scenario @{ W = 4; AppHost = 'cowork'; Ctx = ''; ResType = 'event'; ResAction = 'mcp_meetingmanagement' }
+    New-Scenario @{ W = 4; AppHost = 'cowork'; Ctx = ''; ResType = 'looppage'; ResAction = 'read' }
+    New-Scenario @{ W = 3; AppHost = 'cowork'; Ctx = ''; ResType = 'pdf'; ResAction = 'read' }
+)
+$CoworkScenarioPicker = New-WeightedPicker $CoworkScenarios
+
+# Scout: always-on and proactive, so activity appears without a user prompt.
+$ScoutScenarios = @(
+    New-Scenario @{ W = 12; AppHost = 'scout'; Ctx = ''; ResType = ''; ResAction = '' }
+    New-Scenario @{ W = 10; AppHost = 'scout'; Ctx = ''; ResType = 'emailmessage'; ResAction = 'read' }
+    New-Scenario @{ W = 8; AppHost = 'scout'; Ctx = ''; ResType = 'event'; ResAction = 'read' }
+    New-Scenario @{ W = 7; AppHost = 'scout'; Ctx = ''; ResType = 'teamsmeeting'; ResAction = 'read' }
+    New-Scenario @{ W = 6; AppHost = 'scout'; Ctx = ''; ResType = 'emailmessage'; ResAction = 'draftemail' }
+    New-Scenario @{ W = 6; AppHost = 'scout'; Ctx = ''; ResType = 'planid'; ResAction = 'getitems' }
+    New-Scenario @{ W = 5; AppHost = 'scout'; Ctx = ''; ResType = 'listitem'; ResAction = 'read'; PluginId = 'EnterpriseSearch'; PluginName = 'Enterprise Search'; UseSite = $true }
+    New-Scenario @{ W = 5; AppHost = 'scout'; Ctx = ''; ResType = 'event'; ResAction = 'mcp_meetingmanagement' }
+    New-Scenario @{ W = 4; AppHost = 'scout'; Ctx = ''; ResType = 'docx'; ResAction = 'read' }
+    New-Scenario @{ W = 4; AppHost = 'scout'; Ctx = ''; ResType = 'flow'; ResAction = 'invoke' }
+    New-Scenario @{ W = 3; AppHost = 'scout'; Ctx = ''; ResType = 'teamsmessage'; ResAction = 'postmessagetoconversation' }
+)
+$ScoutScenarioPicker = New-WeightedPicker $ScoutScenarios
 
 $AutonomousScenarios = @(
     New-Scenario @{ W = 10; AppHost = 'autonomous'; Ctx = ''; ResType = 'flow'; ResAction = 'invoke' }
     New-Scenario @{ W = 5; AppHost = 'logic app'; Ctx = ''; ResType = 'connector'; ResAction = 'execute' }
     New-Scenario @{ W = 4; AppHost = 'autonomous'; Ctx = ''; ResType = 'emailmessage'; ResAction = 'sendemailv2' }
 )
-$AutonomousPicker = New-WeightedPicker $AutonomousScenarios
+$AutonomousScenarioPicker = New-WeightedPicker $AutonomousScenarios
 
 $Models = @(
     @{ Name = 'gpt-4o-2024-11-20'; W = 26 },
@@ -604,23 +741,49 @@ foreach ($u in $users) {
             # Choose the interaction surface for this session.
             $agent = $null
             $isAutonomous = $false
+            $isProactive = $false
+
+            # Cowork and Scout light up partway through the window, so the adoption
+            # visuals show two distinct newer surfaces ramping on top of the estate.
+            $windowPos = $dayIdx / [double][Math]::Max(1, $Days - 1)
+            $coworkRamp = [Math]::Max(0.0, ($windowPos - 0.30) / 0.70)
+            $scoutRamp = [Math]::Max(0.0, ($windowPos - 0.35) / 0.65)
+
+            $agentChance = $AgentShare * (0.35 + 1.30 * $u.AgentAffinity)
+            if ($u.HasLicense -ne 'TRUE') { $agentChance = $agentChance * 0.40 }
+            $coworkChance = 0.0
+            if ($u.CoworkEnabled) { $coworkChance = $CoworkShare * (0.40 + 1.20 * $u.AgentAffinity) * $coworkRamp }
+            $scoutChance = 0.0
+            if ($u.ScoutEnabled) { $scoutChance = $ScoutShare * (0.40 + 1.20 * $u.AgentAffinity) * $scoutRamp }
+
             $r = Get-Rand
-            $agentChance = 0.10 + 0.35 * $u.AgentAffinity
-            if ($u.HasLicense -ne 'TRUE') { $agentChance = $agentChance * 0.35 }
-            if ($r -lt 0.035) {
+            $t1 = 0.035
+            $t2 = $t1 + $scoutChance
+            $t3 = $t2 + $coworkChance
+            $t4 = $t3 + $agentChance
+            if ($r -lt $t1) {
                 $agent = Get-WeightedItem $autonomousPicker
                 $isAutonomous = $true
-                $scenario = Get-WeightedItem $AutonomousPicker
+                $scenario = Get-WeightedItem $AutonomousScenarioPicker
             }
-            elseif ($r -lt (0.035 + $agentChance)) {
+            elseif ($r -lt $t2) {
+                $agent = Get-WeightedItem $scoutPicker
+                $isProactive = $true
+                $scenario = Get-WeightedItem $ScoutScenarioPicker
+            }
+            elseif ($r -lt $t3) {
+                $agent = Get-WeightedItem $coworkPicker
+                $scenario = Get-WeightedItem $CoworkScenarioPicker
+            }
+            elseif ($r -lt $t4) {
                 $agent = Get-WeightedItem $declarativePicker
-                $scenario = Get-WeightedItem $AgentPicker
+                $scenario = Get-WeightedItem $AgentScenarioPicker
             }
             elseif ($u.HasLicense -eq 'TRUE') {
-                $scenario = Get-WeightedItem $LicensedPicker
+                $scenario = Get-WeightedItem $LicensedScenarioPicker
             }
             else {
-                $scenario = Get-WeightedItem $UnlicensedPicker
+                $scenario = Get-WeightedItem $UnlicensedScenarioPicker
             }
 
             $appHost = [string]$scenario.AppHost
@@ -648,6 +811,7 @@ foreach ($u in $users) {
 
             $modelName = [string](Get-WeightedItem $ModelPicker).Name
             if ($isAutonomous) { $modelName = 'gpt-41-2025-04-14' }
+            if ($isProactive) { $modelName = 'gpt-5-2025-08-07' }
 
             # Sensitivity labels appear on a minority of interactions.
             $sensLabel = ''
@@ -677,6 +841,8 @@ foreach ($u in $users) {
             elseif ($pr -gt 0.55) { $prompts = 3 + (Get-RandInt 0 2) }
             elseif ($pr -gt 0.30) { $prompts = 2 }
             if ($isAutonomous) { $prompts = 1 + (Get-RandInt 0 3) }
+            elseif ($isProactive) { $prompts = 1 + (Get-RandInt 0 4) }
+            elseif ($environment -eq 'Cowork') { $prompts = 3 + (Get-RandInt 0 7) }
 
             for ($p = 0; $p -lt $prompts; $p++) {
                 $messageId++
@@ -773,20 +939,30 @@ foreach ($a in ($agents | Sort-Object Name)) {
     $canOd = & $yn 0.4
     $canSp = & $yn 0.7
     $canGraph = & $yn 0.25
+    if ($a.Type -eq 'Custom engine agent') { $canGraph = 'Yes' }
     $lastUpdated = if ($a.LastUsed) { $a.LastUsed } else { $a.Created.AddDays((Get-RandInt 5 60)) }
+    $supportedIn = if ($a.SupportedIn) { $a.SupportedIn } else { Get-RandItem $SupportedIn }
+    $createdIn = if ($a.CreatedIn) { $a.CreatedIn } else { Get-RandItem $CreatedIn }
+    # Microsoft-built surfaces (Scout / Cowork skills) are tenant-wide; custom
+    # agents carry an author-chosen audience.
+    $availability = if ($a.Cowork -or $a.Scout) { 'Everyone in the organization' } else { Get-RandItem $Availability }
+    # Custom engine agents are the ones wired to connectors and custom actions.
+    $customActions = if ($a.Type -eq 'Custom engine agent') { (Get-RandInt 2 9).ToString() }
+    elseif ((Get-Rand) -lt 0.35) { (Get-RandInt 1 6).ToString() } else { '0' }
+    $graphDetail = if ($canGraph -eq 'Yes') { Get-RandItem @('ServiceNow connector', 'Salesforce connector', 'SAP ERP connector', 'Workday connector', 'Confluence connector') } else { 'None' }
     $a365Rows.Add([string[]]@(
             $a.Name,
-            (Get-RandItem $SupportedIn),
+            $supportedIn,
             $a.Created.ToString('yyyy-MM-ddTHH:mm:ss'),
             $a.Creator,
             $a.Type,
             ('{0}.{1}.{2}' -f (Get-RandInt 1 4), (Get-RandInt 0 12), (Get-RandInt 0 40)),
-            (Get-RandItem $Availability),
+            $availability,
             $a.CreatorId,
             $a.Desc,
-            (Get-RandItem $CreatedIn),
+            $createdIn,
             $lastUpdated.ToString('yyyy-MM-ddTHH:mm:ss'),
-            $(if ((Get-Rand) -lt 0.35) { (Get-RandInt 1 6).ToString() } else { '0' }),
+            $customActions,
             $a.TitleId,
             (Get-RandItem $Sensitivity),
             $canOdSp, $(if ($canOdSp -eq 'Yes') { 'All items the user can access' } else { 'None' }),
@@ -794,7 +970,7 @@ foreach ($a in ($agents | Sort-Object Name)) {
             $(if ($canOd -eq 'Yes') { 'contoso-my.sharepoint.com' } else { 'None' }),
             $canSp, $(if ($canSp -eq 'Yes') { 'All files the user can access' } else { 'None' }),
             $(if ($canSp -eq 'Yes') { (Get-RandItem $SharePointSites) } else { 'None' }),
-            $canGraph, $(if ($canGraph -eq 'Yes') { 'ServiceNow connector' } else { 'None' }),
+            $canGraph, $graphDetail,
             (& $yn 0.3), (& $yn 0.2),
             $(if ((Get-Rand) -lt 0.4) { 'Yes' } else { 'No' }),
             $(if ((Get-Rand) -lt 0.4) { 'Knowledge pack PDF set' } else { 'None' })
@@ -812,6 +988,13 @@ if (-not $Quiet) {
     Write-Host ("  Users (dim)       : {0:N0}" -f $users.Count)
     Write-Host ("  Active users      : {0:N0}" -f $activeUsers)
     Write-Host ("  Agents (A365)     : {0:N0}" -f $agents.Count)
+    Write-Host ""
+    Write-Host "Rows by Environment:"
+    $envCounts = @{}
+    foreach ($row in $rows) { $envCounts[$row[5]] = 1 + [int]$envCounts[$row[5]] }
+    foreach ($k in ($envCounts.Keys | Sort-Object)) {
+        Write-Host ("  {0,-22} {1,8:N0}" -f $k, $envCounts[$k])
+    }
     Write-Host ""
     Write-Host "Point the PBIT parameters at:"
     Write-Host "  Copilot Interactions File      -> $factPath"
